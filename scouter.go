@@ -1,12 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 type Node struct {
@@ -15,27 +13,42 @@ type Node struct {
 	Size     int64
 	IsDir    bool
 	Children map[string]*Node
+	IsDone   bool
+	mu       sync.RWMutex
 }
 
-func ScanDir(dirPath string) Node {
-	rootPath := filepath.Clean(dirPath)
+func InitNode(rootPath string) *Node {
 	root := &Node{
 		Name:     filepath.Base(rootPath),
 		Path:     rootPath,
 		IsDir:    true,
 		Children: make(map[string]*Node),
 	}
+	return root
+}
 
+func ScanDir(dirPath string, root *Node) {
+	rootPath := filepath.Clean(dirPath)
 	results := make(chan *Node)
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
-	tStart := time.Now()
+
 	entries, _ := os.ReadDir(rootPath)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			info, _ := entry.Info()
+
+			// --- LOCK HERE ---
+			root.mu.Lock()
 			root.Size += info.Size()
-			root.Children[entry.Name()] = &Node{Name: entry.Name(), Path: filepath.Join(rootPath, entry.Name()), Size: info.Size()}
+			root.Children[entry.Name()] = &Node{
+				Name: entry.Name(),
+				Path: filepath.Join(rootPath, entry.Name()),
+				Size: info.Size(),
+			}
+			root.mu.Unlock()
+			// -----------------
+
 			continue
 		}
 
@@ -49,6 +62,7 @@ func ScanDir(dirPath string) Node {
 			node := scanToTree(path)
 			results <- node
 		}(entry)
+		// root.mu.Unlock()
 	}
 	go func() {
 		wg.Wait()
@@ -56,15 +70,26 @@ func ScanDir(dirPath string) Node {
 	}()
 
 	for node := range results {
+		// --- LOCK HERE ---
+		// We lock every time a sub-folder finishes so the TUI
+		// can safely read the new state.
+		root.mu.Lock()
 		root.Children[node.Name] = node
 		root.Size += node.Size
+		root.mu.Unlock()
+		// -----------------
 	}
-	fmt.Printf("Scan completed in %s", time.Since(tStart))
-	return *root
+
+	// --- LOCK HERE ---
+	root.mu.Lock()
+	root.IsDone = true
+	root.mu.Unlock()
+	// -----------------
+
 }
 
 func scanToTree(rootPath string) *Node {
-	fmt.Printf("Scanning %s \n", rootPath)
+	// fmt.Printf("Scanning %s \n", rootPath)
 	rootPath = filepath.Clean(rootPath)
 	root := &Node{
 		Name:     filepath.Base(rootPath),
@@ -116,15 +141,4 @@ func scanToTree(rootPath string) *Node {
 		return nil
 	})
 	return root
-}
-
-func StartScan() {
-	result := ScanDir("G:/")
-	for name, node := range result.Children {
-		if node.IsDir {
-			fmt.Printf("Directory: %s, Size: %.2f MB\n", name, float64(node.Size)/(1024*1024))
-		} else {
-			fmt.Printf("File: %s, Size: %.2f MB\n", name, float64(node.Size)/(1024*1024))
-		}
-	}
 }
