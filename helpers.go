@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"runtime"
 	"syscall"
 )
@@ -55,4 +56,17 @@ func getUnixMounts(root string) []string {
 	}
 
 	return mounts
+}
+
+func openFolder(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default: // Linux
+		cmd = exec.Command("xdg-open", path)
+	}
+	return cmd.Run()
 }
