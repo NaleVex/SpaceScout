@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -22,6 +24,8 @@ type model struct {
 	styles        *styles
 	nodesViewing  []*Node
 	debug         string
+	textInput     textinput.Model // The text input component
+	isEditing     bool
 }
 
 type settings struct {
@@ -50,7 +54,13 @@ const (
 type scanTick struct{}
 
 func initialModel() model {
+	ti := textinput.New()
+	ti.Placeholder = "Enter value..."
+	ti.CharLimit = 10
+	// ti.Width = 10
 	return model{
+		textInput:   ti,
+		isEditing:   false,
 		currentMode: diskSelectMode,
 		currentDir:  "/mnt",
 		directories: GetDisks(),
@@ -113,7 +123,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "enter":
 					selectedDir := m.directories[m.cursor]
 					m.currentMode = scanningMode
-					m.runScan(nil, selectedDir)
+					m.runScan(selectedDir)
 					m.cursor = 0
 					return m, doTick()
 				}
@@ -136,6 +146,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						openFolder(m.nodesViewing[m.cursor].Path)
 					}
 					m.debug = "Opening: " + m.nodesViewing[m.cursor].Path
+				case "p":
+					m.cursor = 0
+					m.currentMode = settingsMode
 				}
 
 				l := len(m.nodesViewing)
@@ -173,8 +186,64 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 	case settingsMode:
-		{
-			return m, nil
+		if m.isEditing {
+			switch msg := msg.(type) {
+			case tea.KeyPressMsg:
+				switch msg.String() {
+				case "enter":
+					val := m.textInput.Value()
+					switch m.cursor {
+					case 0: // sizeMin (int64)
+						if i, err := strconv.ParseInt(val, 10, 64); err == nil {
+							m.settings.sizeMin = i
+						}
+					case 1: // spacePercentMin (float64)
+						if f, err := strconv.ParseFloat(val, 64); err == nil {
+							m.settings.spacePercentMin = f
+						}
+					}
+					m.isEditing = false
+					m.textInput.Blur()
+					return m, nil
+
+				case "esc":
+					m.isEditing = false
+					m.textInput.Blur()
+					return m, nil
+				}
+			}
+
+			var cmd tea.Cmd
+			m.textInput, cmd = m.textInput.Update(msg)
+			return m, cmd
+		}
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			switch msg.String() {
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case "down", "j":
+				if m.cursor < 2 {
+					m.cursor++
+				}
+			case "enter", " ":
+				if m.cursor == 2 {
+					m.settings.foldersOnly = !m.settings.foldersOnly
+				} else {
+					m.isEditing = true
+					m.textInput.Focus()
+					if m.cursor == 0 {
+						m.textInput.SetValue(fmt.Sprintf("%d", m.settings.sizeMin))
+					} else {
+						m.textInput.SetValue(fmt.Sprintf("%.2f", m.settings.spacePercentMin))
+					}
+				}
+			case "p", "esc":
+				m.cursor = 0
+				m.currentMode = scanningMode
+			}
 		}
 	}
 	return m, nil
@@ -260,8 +329,42 @@ func scanningView(m model) string {
 }
 
 func settingsView(m model) string {
+	s := " Settings\n\n"
 
-	return "Settings... (not implemented yet)"
+	settingsItems := []string{
+		"Minimum File Size (MB)",
+		"Minimum Space (%)",
+		"Folders Only",
+	}
+
+	for i, label := range settingsItems {
+		cursor := "  "
+		if m.cursor == i {
+			cursor = "> "
+		}
+		valueStr := ""
+		if m.cursor == i && m.isEditing {
+			valueStr = m.textInput.View()
+		} else {
+			switch i {
+			case 0:
+				valueStr = fmt.Sprintf("%d MB", m.settings.sizeMin)
+			case 1:
+				valueStr = fmt.Sprintf("%.2f%%", m.settings.spacePercentMin)
+			case 2:
+				valueStr = fmt.Sprintf("%t", m.settings.foldersOnly)
+			}
+		}
+
+		s += fmt.Sprintf("%s %-25s: %s\n", cursor, label, valueStr)
+	}
+	if m.isEditing {
+		s += m.styles.hintStyle.Render("\n Enter to Save, Esc to Cancel")
+	} else {
+		s += m.styles.hintStyle.Render("\n Enter to Edit, P to Go Back")
+	}
+
+	return s
 }
 
 func main() {
@@ -273,7 +376,7 @@ func main() {
 	}
 }
 
-func (m *model) runScan(p *tea.Program, path string) {
+func (m *model) runScan(path string) {
 	m.resultNode = InitNode(path)
 	go ScanDir(path, m.resultNode)
 }
