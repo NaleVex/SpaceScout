@@ -170,6 +170,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.cursor = 0
 
 					}
+				case "tab":
+					m.sortMode = (m.sortMode + 1) % 4
 				}
 
 				l := len(m.nodesViewing)
@@ -185,7 +187,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for k := range m.resultNode.Children {
 				keys = append(keys, k)
 			}
-			sort.Strings(keys)
+			switch m.sortMode {
+			case sortNameAs:
+				sort.Slice(keys, func(i, j int) bool {
+					return keys[i] < keys[j]
+				})
+			case sortNameDes:
+				sort.Slice(keys, func(i, j int) bool {
+					return keys[i] > keys[j]
+				})
+			case sortSizeAs:
+				sort.Slice(keys, func(i, j int) bool {
+					return m.resultNode.Children[keys[i]].Size < m.resultNode.Children[keys[j]].Size
+				})
+			case sortSizeDes:
+				sort.Slice(keys, func(i, j int) bool {
+					return m.resultNode.Children[keys[i]].Size > m.resultNode.Children[keys[j]].Size
+				})
+			}
 			m.nodesViewing = m.nodesViewing[:0]
 			totalSize := float64(m.resultNode.Size) / (1024 * 1024)
 			for _, name := range keys {
@@ -296,7 +315,7 @@ func diskSelectView(m model) string {
 		}
 		s += fmt.Sprintf("%s %s\n", cursor, dir)
 	}
-	s += "\nUp/down arrows to navigate, enter to select, q to quit."
+	s += m.styles.hintStyle.Render("\n↑/↓ to navigate, enter to select, q to quit.")
 	return s
 }
 
