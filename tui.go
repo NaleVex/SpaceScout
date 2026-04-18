@@ -172,6 +172,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case "tab":
 					m.sortMode = (m.sortMode + 1) % 4
+
+					// case "r":
+					// 	//reload application
+					// 	e, _ := os.Executable()
+					// 	exec.Command(e).Start()
+					// 	os.Exit(0)
 				}
 
 				l := len(m.nodesViewing)
@@ -333,7 +339,7 @@ func scanningView(m model) string {
 		s += "Scanning (updates every second)...\n"
 	}
 	totalSize := float64(m.resultNode.Size) / (1024 * 1024)
-
+	s += fmt.Sprintf("Current Folder %s:%s\n", m.currentFolder, m.resultNode.Path)
 	s += fmt.Sprintf("Total Size: %.2f MB\n", totalSize)
 	s += fmt.Sprintf("Sort Mode: %s %s\n\n", func() string {
 		switch m.sortMode {
@@ -365,7 +371,7 @@ func scanningView(m model) string {
 	if len(m.viewingNodePath) > 0 {
 		t = " backspace - go back,"
 	}
-	s += m.styles.hintStyle.Render(fmt.Sprintf("\nenter - drill in folder,%s o - open folder, p - parameters, r - start new scan, q - quit", t))
+	s += m.styles.hintStyle.Render(fmt.Sprintf("\nenter - drill in folder,%s o - open folder, p - parameters, q - quit", t))
 	if m.debug != "" {
 		s += "\n\nDebug: " + m.debug
 	}
