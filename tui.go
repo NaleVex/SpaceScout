@@ -12,20 +12,21 @@ import (
 )
 
 type model struct {
-	currentMode   currentMode
-	currentFolder string
-	totalSize     int64
-	resultNode    *Node
-	currentDir    string
-	directories   []string
-	cursor        int
-	settings      settings
-	sortMode      sortMode
-	styles        *styles
-	nodesViewing  []*Node
-	debug         string
-	textInput     textinput.Model // The text input component
-	isEditing     bool
+	currentMode     currentMode
+	currentFolder   string
+	totalSize       int64
+	resultNode      *Node
+	currentDir      string
+	directories     []string
+	cursor          int
+	settings        settings
+	sortMode        sortMode
+	styles          *styles
+	nodesViewing    []*Node
+	viewingNodePath []*Node
+	debug           string
+	textInput       textinput.Model // The text input component
+	isEditing       bool
 }
 
 type settings struct {
@@ -149,6 +150,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "p":
 					m.cursor = 0
 					m.currentMode = settingsMode
+				case "enter", " ":
+					if len(m.nodesViewing) == 0 {
+						return m, nil
+					} else {
+						m.viewingNodePath = append(m.viewingNodePath, m.resultNode)
+						selectedNode := m.nodesViewing[m.cursor]
+						if selectedNode.IsDir {
+							m.resultNode = selectedNode
+							m.cursor = 0
+						}
+					}
+				case "backspace":
+					if len(m.viewingNodePath) == 0 {
+						return m, nil
+					} else {
+						m.resultNode = m.viewingNodePath[len(m.viewingNodePath)-1]
+						m.viewingNodePath = m.viewingNodePath[:len(m.viewingNodePath)-1]
+						m.cursor = 0
+
+					}
 				}
 
 				l := len(m.nodesViewing)
@@ -321,7 +342,11 @@ func scanningView(m model) string {
 		}
 		s += fmt.Sprintf("%s%-30.30s | %12.2f MB | %3.2f%%\n", cursor, node.Name, sizeMB, spacePercent)
 	}
-	s += m.styles.hintStyle.Render("\nenter - drill in folder, o - open folder, p - parameters, r - start new scan, q - quit")
+	t := ""
+	if len(m.viewingNodePath) > 0 {
+		t = " backspace - go back,"
+	}
+	s += m.styles.hintStyle.Render(fmt.Sprintf("\nenter - drill in folder,%s o - open folder, p - parameters, r - start new scan, q - quit", t))
 	if m.debug != "" {
 		s += "\n\nDebug: " + m.debug
 	}
