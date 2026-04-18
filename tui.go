@@ -372,9 +372,9 @@ func scanningView(m model) string {
 		t = " backspace - go back,"
 	}
 	s += m.styles.hintStyle.Render(fmt.Sprintf("\nenter - drill in folder,%s o - open folder, p - parameters, q - quit", t))
-	if m.debug != "" {
-		s += "\n\nDebug: " + m.debug
-	}
+	// if m.debug != "" {
+	// 	s += "\n\nDebug: " + m.debug
+	// }
 	return s
 }
 
