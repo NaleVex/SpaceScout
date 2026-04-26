@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -25,8 +26,11 @@ type model struct {
 	nodesViewing    []*Node
 	viewingNodePath []*Node
 	debug           string
-	textInput       textinput.Model // The text input component
+	textInput       textinput.Model
 	isEditing       bool
+	isScanning      bool
+	isScanCompleted bool
+	scanBreak       context.CancelFunc
 }
 
 type settings struct {
@@ -60,14 +64,16 @@ func initialModel() model {
 	ti.CharLimit = 10
 	// ti.Width = 10
 	return model{
-		textInput:   ti,
-		isEditing:   false,
-		currentMode: diskSelectMode,
-		currentDir:  "/mnt",
-		directories: GetDisks(),
-		cursor:      0,
-		sortMode:    sortNameAs,
-		styles:      newStyles(true),
+		textInput:       ti,
+		isEditing:       false,
+		currentMode:     diskSelectMode,
+		currentDir:      "/mnt",
+		directories:     GetDisks(),
+		cursor:          0,
+		sortMode:        sortNameAs,
+		styles:          newStyles(true),
+		isScanning:      false,
+		isScanCompleted: false,
 		settings: settings{
 			sizeMin:         1,
 			spacePercentMin: .2,
@@ -103,7 +109,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case scanTick:
-		if m.resultNode != nil && !m.resultNode.IsDone {
+		if m.resultNode != nil && !m.isScanCompleted {
 			cmds = append(cmds, doTick())
 		}
 	}
@@ -172,6 +178,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case "tab":
 					m.sortMode = (m.sortMode + 1) % 4
+
+				case "s":
+					if m.scanBreak != nil && m.isScanning {
+						m.scanBreak()
+					}
 
 					// case "r":
 					// 	//reload application
@@ -333,10 +344,11 @@ func scanningView(m model) string {
 	defer m.resultNode.mu.RUnlock()
 
 	s := "\n"
-	if m.resultNode.IsDone {
+	if m.isScanCompleted {
 		s += "✅ Scan completed\n"
 	} else {
-		s += "Scanning (updates every second)...\n"
+		s += "Scanning"
+		s += m.styles.hintStyle.Render(" s to stop\n")
 	}
 	totalSize := float64(m.resultNode.Size) / (1024 * 1024)
 	s += fmt.Sprintf("Current Folder %s:%s\n", m.currentFolder, m.resultNode.Path)
@@ -428,7 +440,10 @@ func main() {
 
 func (m *model) runScan(path string) {
 	m.resultNode = InitNode(path)
-	go ScanDir(path, m.resultNode)
+	m.isScanning = true
+	ctx, cancel := context.WithCancel(context.Background())
+	m.scanBreak = cancel
+	go ScanDir(path, m, ctx)
 }
 
 func doTick() tea.Cmd {

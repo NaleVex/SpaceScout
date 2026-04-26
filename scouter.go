@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,7 +14,6 @@ type Node struct {
 	Size     int64
 	IsDir    bool
 	Children map[string]*Node
-	IsDone   bool
 	mu       sync.RWMutex
 }
 
@@ -27,7 +27,10 @@ func InitNode(rootPath string) *Node {
 	return root
 }
 
-func ScanDir(dirPath string, root *Node) {
+func ScanDir(dirPath string, m *model, ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	rootPath := filepath.Clean(dirPath)
 	results := make(chan *Node)
 	var wg sync.WaitGroup
@@ -38,16 +41,14 @@ func ScanDir(dirPath string, root *Node) {
 		if !entry.IsDir() {
 			info, _ := entry.Info()
 
-			// --- LOCK HERE ---
-			root.mu.Lock()
-			root.Size += info.Size()
-			root.Children[entry.Name()] = &Node{
+			m.resultNode.mu.Lock()
+			m.resultNode.Size += info.Size()
+			m.resultNode.Children[entry.Name()] = &Node{
 				Name: entry.Name(),
 				Path: filepath.Join(rootPath, entry.Name()),
 				Size: info.Size(),
 			}
-			root.mu.Unlock()
-			// -----------------
+			m.resultNode.mu.Unlock()
 
 			continue
 		}
@@ -59,7 +60,7 @@ func ScanDir(dirPath string, root *Node) {
 			defer func() { <-sem }()
 
 			path := filepath.Join(rootPath, entry.Name())
-			node := scanToTree(path)
+			node := scanToTree(path, ctx)
 			results <- node
 		}(entry)
 		// root.mu.Unlock()
@@ -70,25 +71,20 @@ func ScanDir(dirPath string, root *Node) {
 	}()
 
 	for node := range results {
-		// --- LOCK HERE ---
-		// We lock every time a sub-folder finishes so the TUI
-		// can safely read the new state.
-		root.mu.Lock()
-		root.Children[node.Name] = node
-		root.Size += node.Size
-		root.mu.Unlock()
-		// -----------------
+		m.resultNode.mu.Lock()
+		m.resultNode.Children[node.Name] = node
+		m.resultNode.Size += node.Size
+		m.resultNode.mu.Unlock()
 	}
 
-	// --- LOCK HERE ---
-	root.mu.Lock()
-	root.IsDone = true
-	root.mu.Unlock()
-	// -----------------
+	m.resultNode.mu.Lock()
+	m.isScanning = false
+	m.isScanCompleted = true
+	m.resultNode.mu.Unlock()
 
 }
 
-func scanToTree(rootPath string) *Node {
+func scanToTree(rootPath string, ctx context.Context) *Node {
 	// fmt.Printf("Scanning %s \n", rootPath)
 	rootPath = filepath.Clean(rootPath)
 	root := &Node{
@@ -103,6 +99,12 @@ func scanToTree(rootPath string) *Node {
 	_ = filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return filepath.SkipDir
+		}
+		select {
+		case <-ctx.Done(): // Non-blocking check for cancellation
+			return filepath.SkipAll
+		default:
+			// Continue working
 		}
 		path = filepath.Clean(path)
 		if path == rootPath {
