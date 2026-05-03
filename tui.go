@@ -29,8 +29,9 @@ type model struct {
 	textInput       textinput.Model
 	isEditing       bool
 	isScanning      bool
-	isScanCompleted bool
 	scanBreak       context.CancelFunc
+	width           int
+	height          int
 }
 
 type settings struct {
@@ -64,16 +65,15 @@ func initialModel() model {
 	ti.CharLimit = 10
 	// ti.Width = 10
 	return model{
-		textInput:       ti,
-		isEditing:       false,
-		currentMode:     diskSelectMode,
-		currentDir:      "/mnt",
-		directories:     GetDisks(),
-		cursor:          0,
-		sortMode:        sortNameAs,
-		styles:          newStyles(true),
-		isScanning:      false,
-		isScanCompleted: false,
+		textInput:   ti,
+		isEditing:   false,
+		currentMode: diskSelectMode,
+		currentDir:  "/mnt",
+		directories: GetDisks(),
+		cursor:      0,
+		sortMode:    sortNameAs,
+		styles:      newStyles(true),
+		isScanning:  false,
 		settings: settings{
 			sizeMin:         1,
 			spacePercentMin: .2,
@@ -100,6 +100,9 @@ func getAvailableDirectories(path string) []string {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 	case tea.BackgroundColorMsg:
 		m.styles = newStyles(msg.IsDark())
 		return m, nil
@@ -109,7 +112,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case scanTick:
-		if m.resultNode != nil && !m.isScanCompleted {
+		if m.resultNode != nil {
 			cmds = append(cmds, doTick())
 		}
 	}
@@ -182,6 +185,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "s":
 					if m.scanBreak != nil && m.isScanning {
 						m.scanBreak()
+						m.isScanning = false
+						m.debug = "Scan stopped by user"
 					}
 
 					// case "r":
@@ -344,11 +349,9 @@ func scanningView(m model) string {
 	defer m.resultNode.mu.RUnlock()
 
 	s := "\n"
-	if m.isScanCompleted {
-		s += "✅ Scan completed\n"
-	} else {
-		s += "Scanning"
-		s += m.styles.hintStyle.Render(" s to stop\n")
+	if m.isScanning {
+		s += "Scanning "
+		s += m.styles.hintStyle.Render("s to stop\n")
 	}
 	totalSize := float64(m.resultNode.Size) / (1024 * 1024)
 	s += fmt.Sprintf("Current Folder %s:%s\n", m.currentFolder, m.resultNode.Path)

@@ -79,7 +79,6 @@ func ScanDir(dirPath string, m *model, ctx context.Context) {
 
 	m.resultNode.mu.Lock()
 	m.isScanning = false
-	m.isScanCompleted = true
 	m.resultNode.mu.Unlock()
 
 }
