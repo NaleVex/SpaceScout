@@ -1,16 +1,15 @@
+//go:build darwin || linux
+
 package main
 
 import (
 	"os"
 	"os/exec"
 	"runtime"
-	"syscall"
 )
 
 func GetDisks() []string {
 	switch runtime.GOOS {
-	case "windows":
-		return getWindowsDrives()
 	case "darwin": // macOS
 		return getUnixMounts("/Volumes")
 	case "linux":
@@ -18,24 +17,6 @@ func GetDisks() []string {
 	default:
 		return []string{"/"}
 	}
-}
-
-// Windows-specific logic using bitmasking
-func getWindowsDrives() []string {
-	var drives []string
-	kernel32 := syscall.MustLoadDLL("kernel32.dll")
-	getLogicalDrives := kernel32.MustFindProc("GetLogicalDrives")
-
-	// This returns a bitmask (bit 0 = A:, bit 2 = C:, etc.)
-	bitmask, _, _ := getLogicalDrives.Call()
-
-	for i := 0; i < 26; i++ {
-		if (bitmask >> uint(i) & 1) == 1 {
-			drive := string('A'+i) + ":\\"
-			drives = append(drives, drive)
-		}
-	}
-	return drives
 }
 
 // Unix-specific logic
